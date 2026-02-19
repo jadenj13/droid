@@ -3,6 +3,8 @@ package planner
 import (
 	"sync"
 	"time"
+
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 type Stage int
@@ -20,8 +22,9 @@ func (s Stage) String() string {
 }
 
 type Message struct {
-	Role    string // "user" or "assistant"
-	Content string
+	Role      string                           // "user", "assistant", or "tool_result"
+	Content   string                           // plain text, or JSON-serialised content blocks for assistant tool calls
+	RawBlocks []anthropic.ToolResultBlockParam // populated for tool_result role only
 }
 
 type Session struct {
@@ -34,8 +37,8 @@ type Session struct {
 	Criteria []string
 	Issues   []LinkedIssue
 
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type LinkedIssue struct {
