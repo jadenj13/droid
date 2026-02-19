@@ -6,46 +6,45 @@ import (
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/jadenj13/droid/internals/git"
 )
 
-type IssueCreator interface {
-	CreateIssue(ctx context.Context, input IssueInput) (CreatedIssue, error)
-}
-
-type IssueInput struct {
-	Title  string
-	Body   string
-	Labels []string
-}
-
-type CreatedIssue struct {
-	Number int
-	Title  string
-	URL    string
+var toolSetRepo = anthropic.ToolParam{
+	Name:        "set_repo",
+	Description: anthropic.String("Validates and stores the repository URL for this planning session. Call this as soon as the user provides a repo URL, before creating any issues."),
+	InputSchema: anthropic.ToolInputSchemaParam{
+		Properties: map[string]interface{}{
+			"repo_url": map[string]interface{}{
+				"type":        "string",
+				"description": "Full URL of the repository. E.g. https://github.com/myorg/myrepo or https://gitlab.mycompany.com/group/myrepo",
+			},
+		},
+		Required: []string{"repo_url"},
+	},
 }
 
 var toolCreateIssue = anthropic.ToolParam{
 	Name:        "create_issue",
-	Description: anthropic.String("Creates a GitHub issue for a discrete unit of work. Call this once per issue when the user has approved the issue breakdown."),
+	Description: anthropic.String("Creates an issue in the configured repository for a discrete unit of work. Requires set_repo to have been called first. Call once per issue after the user approves the breakdown."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]interface{}{
 			"title": map[string]interface{}{
 				"type":        "string",
-				"description": "Short, action-oriented issue title. E.g. 'Add user authentication endpoint'",
+				"description": "Short, action-oriented issue title.",
 			},
 			"description": map[string]interface{}{
 				"type":        "string",
 				"description": "2-3 sentence description of what needs to be done and why.",
 			},
 			"acceptance_criteria": map[string]interface{}{
-				"type":        "array",
-				"items":       map[string]interface{}{"type": "string"},
-				"description": "List of testable acceptance criteria for this specific issue.",
+				"type":  "array",
+				"items": map[string]interface{}{"type": "string"},
+				"description": "Testable acceptance criteria for this issue.",
 			},
 			"labels": map[string]interface{}{
-				"type":        "array",
-				"items":       map[string]interface{}{"type": "string"},
-				"description": "Labels to apply. Always include 'agent:ready'. Add others like 'backend', 'frontend', 'infra' as appropriate.",
+				"type":  "array",
+				"items": map[string]interface{}{"type": "string"},
+				"description": "Labels to apply. Always include 'agent:ready'.",
 			},
 		},
 		Required: []string{"title", "description", "acceptance_criteria", "labels"},
@@ -54,19 +53,23 @@ var toolCreateIssue = anthropic.ToolParam{
 
 var toolFinishPlanning = anthropic.ToolParam{
 	Name:        "finish_planning",
-	Description: anthropic.String("Call this after all issues have been created to mark the planning session as complete."),
+	Description: anthropic.String("Marks the planning session as complete after all issues have been created."),
 	InputSchema: anthropic.ToolInputSchemaParam{
 		Properties: map[string]interface{}{
 			"summary": map[string]interface{}{
 				"type":        "string",
-				"description": "A brief summary of what was planned and how many issues were created.",
+				"description": "Brief summary of what was planned and how many issues were created.",
 			},
 		},
 		Required: []string{"summary"},
 	},
 }
 
-var AllTools = []anthropic.ToolParam{toolCreateIssue, toolFinishPlanning}
+var AllTools = []anthropic.ToolParam{toolSetRepo, toolCreateIssue, toolFinishPlanning}
+
+type setRepoInput struct {
+	RepoURL string `json:"repo_url"`
+}
 
 type createIssueInput struct {
 	Title              string   `json:"title"`
@@ -80,38 +83,63 @@ type finishPlanningInput struct {
 }
 
 type ToolResult struct {
-	ToolUseID string
-	Content   string // shown back to Claude as the tool result
+	Content string
+}
+type TrackerFactory interface {
+	TrackerFor(ctx context.Context, repoURL string) (git.Tracker, git.RepoInfo, error)
 }
 
-func ExecuteTool(ctx context.Context, name string, rawInput json.RawMessage, sess *Session, creator IssueCreator) (ToolResult, error) {
+func ExecuteTool(ctx context.Context, name string, raw json.RawMessage, sess *Session, factory TrackerFactory) (ToolResult, error) {
 	switch name {
+	case "set_repo":
+		return execSetRepo(ctx, raw, sess, factory)
 	case "create_issue":
-		return execCreateIssue(ctx, rawInput, sess, creator)
+		return execCreateIssue(ctx, raw, sess)
 	case "finish_planning":
-		return execFinishPlanning(rawInput, sess)
+		return execFinishPlanning(raw, sess)
 	default:
 		return ToolResult{}, fmt.Errorf("unknown tool: %s", name)
 	}
 }
 
-func execCreateIssue(ctx context.Context, raw json.RawMessage, sess *Session, creator IssueCreator) (ToolResult, error) {
-	var input createIssueInput
+func execSetRepo(ctx context.Context, raw json.RawMessage, sess *Session, factory TrackerFactory) (ToolResult, error) {
+	var input setRepoInput
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return ToolResult{}, fmt.Errorf("unmarshal create_issue input: %w", err)
+		return ToolResult{}, fmt.Errorf("unmarshal set_repo: %w", err)
 	}
 
-	body := buildIssueBody(input.Description, input.AcceptanceCriteria)
+	tracker, info, err := factory.TrackerFor(ctx, input.RepoURL)
+	if err != nil {
+		// Return as a soft error so Claude can tell the user what went wrong.
+		return ToolResult{Content: fmt.Sprintf("error: %s", err)}, nil
+	}
 
-	issue, err := creator.CreateIssue(ctx, IssueInput{
+	sess.Repo = &info
+	sess.Tracker = tracker
+
+	return ToolResult{
+		Content: fmt.Sprintf("Repo configured: %s (%s) — owner: %q, repo: %q",
+			info.RawURL, info.Platform, info.Owner, info.Repo),
+	}, nil
+}
+
+func execCreateIssue(ctx context.Context, raw json.RawMessage, sess *Session) (ToolResult, error) {
+	if sess.Tracker == nil {
+		return ToolResult{Content: "error: no repository configured — ask the user for a repo URL first"}, nil
+	}
+
+	var input createIssueInput
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return ToolResult{}, fmt.Errorf("unmarshal create_issue: %w", err)
+	}
+
+	issue, err := sess.Tracker.CreateIssue(ctx, git.IssueInput{
 		Title:  input.Title,
-		Body:   body,
+		Body:   buildIssueBody(input.Description, input.AcceptanceCriteria),
 		Labels: input.Labels,
 	})
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("error creating issue: %s", err)}, nil
-		// Note: we return nil error so Claude sees the error as a tool result
-		// and can handle it gracefully, rather than the whole request failing.
 	}
 
 	sess.Issues = append(sess.Issues, LinkedIssue{
@@ -128,7 +156,7 @@ func execCreateIssue(ctx context.Context, raw json.RawMessage, sess *Session, cr
 func execFinishPlanning(raw json.RawMessage, sess *Session) (ToolResult, error) {
 	var input finishPlanningInput
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return ToolResult{}, fmt.Errorf("unmarshal finish_planning input: %w", err)
+		return ToolResult{}, fmt.Errorf("unmarshal finish_planning: %w", err)
 	}
 	sess.Stage = StageDone
 	return ToolResult{Content: "Planning session marked as complete."}, nil

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/jadenj13/droid/internals/git"
 )
 
 type Stage int
@@ -22,8 +23,8 @@ func (s Stage) String() string {
 }
 
 type Message struct {
-	Role      string                           // "user", "assistant", or "tool_result"
-	Content   string                           // plain text, or JSON-serialised content blocks for assistant tool calls
+	Role      string // "user", "assistant", or "tool_result"
+	Content   string // plain text, or JSON-serialised content blocks for assistant tool calls
 	RawBlocks []anthropic.ToolResultBlockParam // populated for tool_result role only
 }
 
@@ -32,6 +33,9 @@ type Session struct {
 	ChannelID string
 	Stage     Stage
 	Messages  []Message
+
+	Repo    *git.RepoInfo
+	Tracker git.Tracker
 
 	PRDDraft string
 	Criteria []string

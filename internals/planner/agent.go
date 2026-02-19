@@ -18,12 +18,12 @@ type LLM interface {
 type Agent struct {
 	sessions *SessionStore
 	llm      LLM
-	issues   IssueCreator
+	factory  TrackerFactory
 	log      *slog.Logger
 }
 
-func NewAgent(sessions *SessionStore, llm LLM, issues IssueCreator, log *slog.Logger) *Agent {
-	return &Agent{sessions: sessions, llm: llm, issues: issues, log: log}
+func NewAgent(sessions *SessionStore, llm LLM, factory TrackerFactory, log *slog.Logger) *Agent {
+	return &Agent{sessions: sessions, llm: llm, factory: factory, log: log}
 }
 
 func (a *Agent) Handle(ctx context.Context, msg slackhandler.IncomingMessage) (string, error) {
@@ -62,15 +62,15 @@ func (a *Agent) runLoop(ctx context.Context, sess *Session) (string, error) {
 			return extractText(resp), nil
 		}
 
-		a.log.Info("Executing tools", "count", len(toolCalls), "iter", i)
+		a.log.Info("executing tools", "count", len(toolCalls), "iter", i)
 
 		toolResults := make([]anthropic.ToolResultBlockParam, 0, len(toolCalls))
 		for _, tc := range toolCalls {
-			result, err := ExecuteTool(ctx, tc.Name, tc.Input, sess, a.issues)
+			result, err := ExecuteTool(ctx, tc.Name, tc.Input, sess, a.factory)
 			if err != nil {
-				return "", fmt.Errorf("Execute tool %q: %w", tc.Name, err)
+				return "", fmt.Errorf("execute tool %q: %w", tc.Name, err)
 			}
-			a.log.Info("Tool executed", "tool", tc.Name, "result", result.Content)
+			a.log.Info("tool executed", "tool", tc.Name, "result", result.Content)
 			toolResults = append(toolResults, anthropic.ToolResultBlockParam{
 				ToolUseID: tc.ID,
 				Content: []anthropic.ToolResultBlockParamContentUnion{
@@ -124,21 +124,30 @@ func marshalBlocks(blocks []anthropic.ContentBlockUnion) string {
 }
 
 func systemPrompt(sess *Session) string {
-	base := `You are a technical project planning assistant embedded in Slack.
+	repoLine := "No repository configured yet."
+	if sess.Repo != nil {
+		repoLine = fmt.Sprintf("Repository: %s (%s)", sess.Repo.RawURL, sess.Repo.Platform)
+	}
+
+	base := fmt.Sprintf(`You are a technical project planning assistant embedded in Slack.
 Your job is to help the user plan software projects and features by working through:
 1. Understanding the problem and goals (brainstorm)
 2. Writing a clear Product Requirements Document (PRD)
 3. Defining acceptance criteria
-4. Breaking the work into discrete GitHub issues
+4. Breaking the work into discrete issues
+
+%s
 
 Guidelines:
+- Early in the conversation, ask for the repository URL if the user hasn't provided one.
+  Call set_repo as soon as you have it — do not wait until issue creation time.
 - Ask clarifying questions before writing any documents.
 - Be concise in Slack — use bullet points, avoid walls of text.
 - When writing PRDs or acceptance criteria, be specific and testable.
 - Only move to the next stage when the user confirms they're happy.
 - When creating issues, make each one small enough for a single engineer to complete in a day or two.
 - Always include the 'agent:ready' label when creating issues.
-`
+`, repoLine)
 	switch sess.Stage {
 	case StageBrainstorm:
 		base += `
