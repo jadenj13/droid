@@ -85,11 +85,11 @@ type finishPlanningInput struct {
 type ToolResult struct {
 	Content string
 }
-type TrackerFactory interface {
-	TrackerFor(ctx context.Context, repoURL string) (git.Tracker, git.RepoInfo, error)
+type ProviderFactory interface {
+	ProviderFor(ctx context.Context, repoURL string) (git.GitProvider, git.RepoInfo, error)
 }
 
-func ExecuteTool(ctx context.Context, name string, raw json.RawMessage, sess *Session, factory TrackerFactory) (ToolResult, error) {
+func ExecuteTool(ctx context.Context, name string, raw json.RawMessage, sess *Session, factory ProviderFactory) (ToolResult, error) {
 	switch name {
 	case "set_repo":
 		return execSetRepo(ctx, raw, sess, factory)
@@ -102,13 +102,13 @@ func ExecuteTool(ctx context.Context, name string, raw json.RawMessage, sess *Se
 	}
 }
 
-func execSetRepo(ctx context.Context, raw json.RawMessage, sess *Session, factory TrackerFactory) (ToolResult, error) {
+func execSetRepo(ctx context.Context, raw json.RawMessage, sess *Session, factory ProviderFactory) (ToolResult, error) {
 	var input setRepoInput
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return ToolResult{}, fmt.Errorf("unmarshal set_repo: %w", err)
 	}
 
-	tracker, info, err := factory.TrackerFor(ctx, input.RepoURL)
+	tracker, info, err := factory.ProviderFor(ctx, input.RepoURL)
 	if err != nil {
 		// Return as a soft error so Claude can tell the user what went wrong.
 		return ToolResult{Content: fmt.Sprintf("error: %s", err)}, nil

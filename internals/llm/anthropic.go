@@ -7,7 +7,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/jadenj13/droid/internals/planner"
 )
 
 const (
@@ -43,7 +42,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	return c
 }
 
-func (c *Client) CompleteWithTools(ctx context.Context, system string, messages []planner.Message, tools []anthropic.ToolParam) (*anthropic.Message, error) {
+func (c *Client) CompleteWithTools(ctx context.Context, system string, messages []Message, tools []anthropic.ToolParam) (*anthropic.Message, error) {
 	apiMessages, err := toAPIMessages(messages)
 	if err != nil {
 		return nil, err
@@ -69,7 +68,7 @@ func (c *Client) CompleteWithTools(ctx context.Context, system string, messages 
 	return resp, nil
 }
 
-func toAPIMessages(messages []planner.Message) ([]anthropic.MessageParam, error) {
+func toAPIMessages(messages []Message) ([]anthropic.MessageParam, error) {
 	out := make([]anthropic.MessageParam, 0, len(messages))
 
 	for i, m := range messages {

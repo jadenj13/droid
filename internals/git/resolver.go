@@ -113,7 +113,7 @@ func NewFactory(githubToken, gitlabToken string, opts ...FactoryOption) *Factory
 	return f
 }
 
-func (f *Factory) TrackerFor(ctx context.Context, repoURL string) (Tracker, RepoInfo, error) {
+func (f *Factory) ProviderFor(ctx context.Context, repoURL string) (GitProvider, RepoInfo, error) {
 	info, err := ParseRepoURL(repoURL)
 	if err != nil {
 		return nil, RepoInfo{}, err
@@ -124,7 +124,7 @@ func (f *Factory) TrackerFor(ctx context.Context, repoURL string) (Tracker, Repo
 		if f.githubToken == "" {
 			return nil, info, fmt.Errorf("no GitHub token configured")
 		}
-		t, err := NewGitHubTracker(ctx, f.githubToken, info)
+		t, err := NewGitHubProvider(ctx, f.githubToken, info)
 		return t, info, err
 
 	case PlatformGitLab:
@@ -137,7 +137,7 @@ func (f *Factory) TrackerFor(ctx context.Context, repoURL string) (Tracker, Repo
 			parsed, _ := url.Parse(info.RawURL)
 			baseURL = parsed.Scheme + "://" + parsed.Host
 		}
-		t, err := NewGitLabTracker(f.gitlabToken, baseURL, info)
+		t, err := NewGitLabProvider(f.gitlabToken, baseURL, info)
 		return t, info, err
 	}
 

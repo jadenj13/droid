@@ -8,21 +8,23 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+
+	"github.com/jadenj13/droid/internals/llm"
 	slackhandler "github.com/jadenj13/droid/internals/slack"
 )
 
 type LLM interface {
-	CompleteWithTools(ctx context.Context, system string, messages []Message, tools []anthropic.ToolParam) (*anthropic.Message, error)
+	CompleteWithTools(ctx context.Context, system string, messages []llm.Message, tools []anthropic.ToolParam) (*anthropic.Message, error)
 }
 
 type Agent struct {
 	sessions *SessionStore
 	llm      LLM
-	factory  TrackerFactory
+	factory  ProviderFactory
 	log      *slog.Logger
 }
 
-func NewAgent(sessions *SessionStore, llm LLM, factory TrackerFactory, log *slog.Logger) *Agent {
+func NewAgent(sessions *SessionStore, llm LLM, factory ProviderFactory, log *slog.Logger) *Agent {
 	return &Agent{sessions: sessions, llm: llm, factory: factory, log: log}
 }
 
@@ -46,7 +48,7 @@ func (a *Agent) Handle(ctx context.Context, msg slackhandler.IncomingMessage) (s
 }
 
 func (a *Agent) runLoop(ctx context.Context, sess *Session) (string, error) {
-	msgs := make([]Message, len(sess.Messages))
+	msgs := make([]llm.Message, len(sess.Messages))
 	copy(msgs, sess.Messages)
 
 	const maxIter = 10 // safety limit
@@ -80,8 +82,8 @@ func (a *Agent) runLoop(ctx context.Context, sess *Session) (string, error) {
 		}
 
 		msgs = append(msgs,
-			Message{Role: "assistant", Content: marshalBlocks(resp.Content)},
-			Message{Role: "tool_result", RawBlocks: toolResults},
+			llm.Message{Role: "assistant", Content: marshalBlocks(resp.Content)},
+			llm.Message{Role: "tool_result", RawBlocks: toolResults},
 		)
 	}
 

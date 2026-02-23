@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/jadenj13/droid/internals/git"
+	"github.com/jadenj13/droid/internals/llm"
 )
 
 type Stage int
@@ -22,20 +22,14 @@ func (s Stage) String() string {
 	return [...]string{"brainstorm", "prd", "criteria", "issues", "done"}[s]
 }
 
-type Message struct {
-	Role      string // "user", "assistant", or "tool_result"
-	Content   string // plain text, or JSON-serialised content blocks for assistant tool calls
-	RawBlocks []anthropic.ToolResultBlockParam // populated for tool_result role only
-}
-
 type Session struct {
 	ThreadTS  string
 	ChannelID string
 	Stage     Stage
-	Messages  []Message
+	Messages  []llm.Message
 
 	Repo    *git.RepoInfo
-	Tracker git.Tracker
+	Tracker git.GitProvider
 
 	PRDDraft string
 	Criteria []string
@@ -56,7 +50,7 @@ func newSession(threadTS, channelID string) *Session {
 		ThreadTS:  threadTS,
 		ChannelID: channelID,
 		Stage:     StageBrainstorm,
-		Messages:  []Message{},
+		Messages:  []llm.Message{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -102,6 +96,6 @@ func (s *SessionStore) Save(sess *Session) error {
 }
 
 func (s *SessionStore) AppendMessage(sess *Session, role, content string) error {
-	sess.Messages = append(sess.Messages, Message{Role: role, Content: content})
+	sess.Messages = append(sess.Messages, llm.Message{Role: role, Content: content})
 	return s.Save(sess)
 }
