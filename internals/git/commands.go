@@ -168,7 +168,7 @@ func (r *Repo) ListFiles(ctx context.Context, subdir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for i, l := range lines {
 		lines[i] = strings.TrimPrefix(l, r.dir+"/")

@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/go-github/v60/github"
 	"golang.org/x/oauth2"
@@ -72,4 +73,109 @@ func (t *GitHubProvider) OpenPR(ctx context.Context, input PRInput) (string, err
 		return "", fmt.Errorf("github open PR: %w", err)
 	}
 	return pr.GetHTMLURL(), nil
+}
+
+func (t *GitHubProvider) GetPRComments(ctx context.Context, prNumber int) ([]PRComment, error) {
+	comments, _, err := t.gh.PullRequests.ListComments(ctx, t.info.Owner, t.info.Repo, prNumber, nil)
+	if err != nil {
+		return nil, fmt.Errorf("github get PR comments: %w", err)
+	}
+	out := make([]PRComment, 0, len(comments))
+	for _, c := range comments {
+		out = append(out, PRComment{
+			Path: c.GetPath(),
+			Line: c.GetLine(),
+			Body: c.GetBody(),
+		})
+	}
+	return out, nil
+}
+
+func (t *GitHubProvider) PostReview(ctx context.Context, prNumber int, review Review) error {
+	event := verdictToGitHubEvent(review.Verdict)
+
+	comments := make([]*github.DraftReviewComment, 0, len(review.Comments))
+	for _, c := range review.Comments {
+		side := c.Side
+		if side == "" {
+			side = "RIGHT"
+		}
+		comments = append(comments, &github.DraftReviewComment{
+			Path: github.String(c.Path),
+			Line: github.Int(c.Line),
+			Body: github.String(c.Body),
+			Side: github.String(side),
+		})
+	}
+
+	_, _, err := t.gh.PullRequests.CreateReview(ctx, t.info.Owner, t.info.Repo, prNumber, &github.PullRequestReviewRequest{
+		Event:    github.String(event),
+		Body:     github.String(review.Summary),
+		Comments: comments,
+	})
+	if err != nil {
+		return fmt.Errorf("github post review: %w", err)
+	}
+	return nil
+}
+
+func (t *GitHubProvider) getPRDiff(ctx context.Context, prNumber int) (string, error) {
+	opts := &github.ListOptions{}
+	files, _, err := t.gh.PullRequests.ListFiles(ctx, t.info.Owner, t.info.Repo, prNumber, opts)
+	if err != nil {
+		return "", fmt.Errorf("github list PR files: %w", err)
+	}
+
+	var sb strings.Builder
+	for _, f := range files {
+		sb.WriteString(fmt.Sprintf("--- %s\n+++ %s\n", f.GetFilename(), f.GetFilename()))
+		sb.WriteString(f.GetPatch())
+		sb.WriteString("\n")
+	}
+	return sb.String(), nil
+}
+
+func (t *GitHubProvider) GetPR(ctx context.Context, prNumber int) (PR, error) {
+	pr, _, err := t.gh.PullRequests.Get(ctx, t.info.Owner, t.info.Repo, prNumber)
+	if err != nil {
+		return PR{}, fmt.Errorf("github get PR: %w", err)
+	}
+
+	// Fetch the unified diff by requesting the PR with the diff media type.
+	diff, err := t.getPRDiff(ctx, prNumber)
+	if err != nil {
+		return PR{}, err
+	}
+
+	return PR{
+		Number:      pr.GetNumber(),
+		Title:       pr.GetTitle(),
+		Description: pr.GetBody(),
+		URL:         pr.GetHTMLURL(),
+		Branch:      pr.GetHead().GetRef(),
+		BaseBranch:  pr.GetBase().GetRef(),
+		Diff:        diff,
+		IssueURL:    extractIssueURL(pr.GetBody()),
+	}, nil
+}
+
+func verdictToGitHubEvent(verdict string) string {
+	switch verdict {
+	case "approve":
+		return "APPROVE"
+	case "request_changes":
+		return "REQUEST_CHANGES"
+	default:
+		return "COMMENT"
+	}
+}
+
+func extractIssueURL(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Closes ") {
+			return strings.TrimPrefix(line, "Closes ")
+		}
+	}
+	return ""
 }

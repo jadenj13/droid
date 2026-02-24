@@ -19,12 +19,12 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	anthropicKey  := mustEnv("ANTHROPIC_API_KEY")
-	githubToken   := os.Getenv("GITHUB_TOKEN")  // optional
-	gitlabToken   := os.Getenv("GITLAB_TOKEN")  // optional
-	githubSecret  := os.Getenv("GITHUB_WEBHOOK_SECRET")
-	gitlabSecret  := os.Getenv("GITLAB_WEBHOOK_SECRET")
-	addr          := envOr("EXECUTOR_ADDR", ":8080")
+	anthropicKey := mustEnv("ANTHROPIC_API_KEY")
+	githubToken := os.Getenv("GITHUB_TOKEN") // optional
+	gitlabToken := os.Getenv("GITLAB_TOKEN") // optional
+	githubSecret := os.Getenv("GITHUB_WEBHOOK_SECRET")
+	gitlabSecret := os.Getenv("GITLAB_WEBHOOK_SECRET")
+	addr := envOr("EXECUTOR_ADDR", ":8080")
 
 	cloneToken := githubToken
 	if cloneToken == "" {
@@ -34,10 +34,10 @@ func main() {
 	llmClient := llm.NewClient(anthropicKey,
 		llm.WithMaxTokens(16000),
 	)
-	factory  := git.NewFactory(githubToken, gitlabToken)
-	agent    := executor.NewAgent(llmClient, log)
-	worker   := executor.NewWorker(agent, *factory, cloneToken, log)
-	webhook  := executor.NewWebhookServer(worker, githubSecret, gitlabSecret, log)
+	factory := git.NewFactory(githubToken, gitlabToken)
+	agent := executor.NewAgent(llmClient, log)
+	worker := executor.NewWorker(agent, *factory, cloneToken, log)
+	webhook := executor.NewWebhookServer(worker, githubSecret, gitlabSecret, log)
 
 	srv := &http.Server{
 		Addr:         addr,

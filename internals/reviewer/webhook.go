@@ -1,4 +1,4 @@
-package executor
+package reviewer
 
 import (
 	"context"
@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-
-	"github.com/jadenj13/droid/internals/git"
 )
 
 type WebhookServer struct {
@@ -38,17 +36,15 @@ func (s *WebhookServer) Handler() http.Handler {
 	return mux
 }
 
-type githubWebhookPayload struct {
+type githubPRPayload struct {
 	Action string `json:"action"`
 	Label  struct {
 		Name string `json:"name"`
 	} `json:"label"`
-	Issue struct {
+	PullRequest struct {
 		Number int    `json:"number"`
-		Title  string `json:"title"`
 		URL    string `json:"html_url"`
-		Body   string `json:"body"`
-	} `json:"issue"`
+	} `json:"pull_request"`
 	Repository struct {
 		HTMLURL string `json:"html_url"`
 	} `json:"repository"`
@@ -62,40 +58,36 @@ func (s *WebhookServer) handleGitHub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	event := r.Header.Get("x-github-event")
-	if event != "issues" {
+	if r.Header.Get("x-github-event") != "pull_request" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	var payload githubWebhookPayload
+	var payload githubPRPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "bad payload", http.StatusBadRequest)
 		return
 	}
 
-	if payload.Action != "labeled" || payload.Label.Name != "agent:ready" {
+	if payload.Action != "labeled" || payload.Label.Name != "agent:review" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	issue := git.Issue{
-		Number: payload.Issue.Number,
-		Title:  payload.Issue.Title,
-		URL:    payload.Issue.URL,
-	}
+	prNumber := payload.PullRequest.Number
+	repoURL := payload.Repository.HTMLURL
 
 	go func() {
 		ctx := context.Background()
-		if err := s.worker.HandleIssue(ctx, payload.Repository.HTMLURL, issue); err != nil {
-			s.log.Error("handle issue failed", "issue", issue.Number, "err", err)
+		if err := s.worker.HandlePR(ctx, repoURL, prNumber); err != nil {
+			s.log.Error("reviewer failed", "pr", prNumber, "err", err)
 		}
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
 }
 
-type gitlabWebhookPayload struct {
+type gitlabMRPayload struct {
 	ObjectKind string `json:"object_kind"`
 	Changes    struct {
 		Labels struct {
@@ -108,9 +100,7 @@ type gitlabWebhookPayload struct {
 		} `json:"labels"`
 	} `json:"changes"`
 	ObjectAttributes struct {
-		IID   int    `json:"iid"`
-		Title string `json:"title"`
-		URL   string `json:"url"`
+		IID int `json:"iid"`
 	} `json:"object_attributes"`
 	Project struct {
 		WebURL string `json:"web_url"`
@@ -129,32 +119,24 @@ func (s *WebhookServer) handleGitLab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload gitlabWebhookPayload
+	var payload gitlabMRPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "bad payload", http.StatusBadRequest)
 		return
 	}
 
-	if payload.ObjectKind != "issue" {
+	if payload.ObjectKind != "merge_request" || !labelAdded(payload.Changes.Labels.Current, payload.Changes.Labels.Previous, "agent:review") {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	if !labelAdded(payload.Changes.Labels.Current, payload.Changes.Labels.Previous, "agent:ready") {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	issue := git.Issue{
-		Number: payload.ObjectAttributes.IID,
-		Title:  payload.ObjectAttributes.Title,
-		URL:    payload.ObjectAttributes.URL,
-	}
+	mrNumber := payload.ObjectAttributes.IID
+	repoURL := payload.Project.WebURL
 
 	go func() {
 		ctx := context.Background()
-		if err := s.worker.HandleIssue(ctx, payload.Project.WebURL, issue); err != nil {
-			s.log.Error("handle issue failed", "issue", issue.Number, "err", err)
+		if err := s.worker.HandlePR(ctx, repoURL, mrNumber); err != nil {
+			s.log.Error("reviewer failed", "mr", mrNumber, "err", err)
 		}
 	}()
 
@@ -167,10 +149,12 @@ func (s *WebhookServer) readAndVerify(r *http.Request, secret, sigHeader string)
 		return nil, err
 	}
 	if secret == "" {
-		return body, nil // verification disabled
+		return body, nil
 	}
-	sig := r.Header.Get(sigHeader)
-	if !verifyHMAC(body, secret, sig) {
+	sig := strings.TrimPrefix(r.Header.Get(sigHeader), "sha256=")
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	if !hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(sig)) {
 		return nil, fmt.Errorf("signature mismatch")
 	}
 	return body, nil
@@ -179,15 +163,10 @@ func (s *WebhookServer) readAndVerify(r *http.Request, secret, sigHeader string)
 func labelAdded(current, previous []struct {
 	Name string `json:"name"`
 }, label string) bool {
-	inPrev := false
 	for _, l := range previous {
 		if l.Name == label {
-			inPrev = true
-			break
+			return false
 		}
-	}
-	if inPrev {
-		return false
 	}
 	for _, l := range current {
 		if l.Name == label {
@@ -195,12 +174,4 @@ func labelAdded(current, previous []struct {
 		}
 	}
 	return false
-}
-
-func verifyHMAC(body []byte, secret, sig string) bool {
-	sig = strings.TrimPrefix(sig, "sha256=")
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(sig))
 }

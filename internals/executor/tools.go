@@ -137,9 +137,9 @@ type submitWorkInput struct {
 }
 
 type ToolResult struct {
-	Content  string
-	Done     bool   // true when submit_work is called — signals the loop to exit
-	PRTitle  string // populated on submit_work
+	Content   string
+	Done      bool   // true when submit_work is called — signals the loop to exit
+	PRTitle   string // populated on submit_work
 	PRSummary string
 }
 

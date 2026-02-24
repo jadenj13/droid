@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxIterations = 50  // hard ceiling on tool call loop
+	maxIterations = 50 // hard ceiling on tool call loop
 	maxTokens     = int64(16000)
 	model         = anthropic.ModelClaude4Sonnet20250514
 )
@@ -24,15 +24,15 @@ type LLM interface {
 }
 
 type PRResult struct {
-	Branch    string
-	Title     string
-	Summary   string
-	IssueURL  string
+	Branch   string
+	Title    string
+	Summary  string
+	IssueURL string
 }
 
 type Agent struct {
-	llm    LLM
-	log    *slog.Logger
+	llm LLM
+	log *slog.Logger
 }
 
 func NewAgent(llm LLM, log *slog.Logger) *Agent {

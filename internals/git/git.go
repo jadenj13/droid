@@ -7,6 +7,9 @@ type GitProvider interface {
 	GetIssue(ctx context.Context, number int) (Issue, error)
 	AddLabel(ctx context.Context, number int, label string) error
 	OpenPR(ctx context.Context, input PRInput) (string, error)
+	GetPR(ctx context.Context, prNumber int) (PR, error)
+	PostReview(ctx context.Context, prNumber int, review Review) error
+	GetPRComments(ctx context.Context, prNumber int) ([]PRComment, error)
 	RepoURL() string
 }
 
@@ -29,6 +32,32 @@ type Issue struct {
 	Number int
 	Title  string
 	URL    string
+}
+
+type PR struct {
+	Number      int
+	Title       string
+	Description string // the PR body written by the executor
+	URL         string
+	Branch      string
+	BaseBranch  string
+	Diff        string // unified diff of all changes
+	IssueURL    string // the originating issue URL parsed from the PR body
+}
+
+type Review struct {
+	// Verdict is one of "approve", "request_changes", or "comment".
+	Verdict  string
+	Summary  string // overall review comment
+	Comments []PRComment
+}
+
+type PRComment struct {
+	Path string // file path
+	Line int    // line number in the diff
+	Body string // comment text
+	// Side is "RIGHT" (new file) or "LEFT" (old file). Defaults to RIGHT.
+	Side string
 }
 
 type Platform int

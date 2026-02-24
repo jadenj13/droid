@@ -28,8 +28,8 @@ type Session struct {
 	Stage     Stage
 	Messages  []llm.Message
 
-	Repo    *git.RepoInfo
-	Tracker git.GitProvider
+	Repo        *git.RepoInfo
+	GitProvider git.GitProvider
 
 	PRDDraft string
 	Criteria []string

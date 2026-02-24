@@ -18,15 +18,15 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	botToken     := mustEnv("SLACK_BOT_TOKEN")
-	appToken     := mustEnv("SLACK_APP_TOKEN")
+	botToken := mustEnv("SLACK_BOT_TOKEN")
+	appToken := mustEnv("SLACK_APP_TOKEN")
 	anthropicKey := mustEnv("ANTHROPIC_API_KEY")
-	githubToken  := mustEnv("GITHUB_TOKEN")
-	gitlabToken  := mustEnv("GITLAB_TOKEN")
+	githubToken := mustEnv("GITHUB_TOKEN")
+	gitlabToken := mustEnv("GITLAB_TOKEN")
 
 	sessions := planner.NewSessionStore()
 	llmClient := llm.NewClient(anthropicKey)
-	factory   := git.NewFactory(githubToken, gitlabToken)
+	factory := git.NewFactory(githubToken, gitlabToken)
 
 	agent := planner.NewAgent(sessions, llmClient, factory, log)
 

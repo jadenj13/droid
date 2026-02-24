@@ -90,8 +90,8 @@ func normaliseSSH(s string) string {
 }
 
 type Factory struct {
-	githubToken string
-	gitlabToken string
+	githubToken   string
+	gitlabToken   string
 	gitlabBaseURL string
 }
 

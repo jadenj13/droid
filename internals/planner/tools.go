@@ -37,13 +37,13 @@ var toolCreateIssue = anthropic.ToolParam{
 				"description": "2-3 sentence description of what needs to be done and why.",
 			},
 			"acceptance_criteria": map[string]interface{}{
-				"type":  "array",
-				"items": map[string]interface{}{"type": "string"},
+				"type":        "array",
+				"items":       map[string]interface{}{"type": "string"},
 				"description": "Testable acceptance criteria for this issue.",
 			},
 			"labels": map[string]interface{}{
-				"type":  "array",
-				"items": map[string]interface{}{"type": "string"},
+				"type":        "array",
+				"items":       map[string]interface{}{"type": "string"},
 				"description": "Labels to apply. Always include 'agent:ready'.",
 			},
 		},
@@ -108,14 +108,14 @@ func execSetRepo(ctx context.Context, raw json.RawMessage, sess *Session, factor
 		return ToolResult{}, fmt.Errorf("unmarshal set_repo: %w", err)
 	}
 
-	tracker, info, err := factory.ProviderFor(ctx, input.RepoURL)
+	provider, info, err := factory.ProviderFor(ctx, input.RepoURL)
 	if err != nil {
 		// Return as a soft error so Claude can tell the user what went wrong.
 		return ToolResult{Content: fmt.Sprintf("error: %s", err)}, nil
 	}
 
 	sess.Repo = &info
-	sess.Tracker = tracker
+	sess.GitProvider = provider
 
 	return ToolResult{
 		Content: fmt.Sprintf("Repo configured: %s (%s) — owner: %q, repo: %q",
@@ -124,7 +124,7 @@ func execSetRepo(ctx context.Context, raw json.RawMessage, sess *Session, factor
 }
 
 func execCreateIssue(ctx context.Context, raw json.RawMessage, sess *Session) (ToolResult, error) {
-	if sess.Tracker == nil {
+	if sess.GitProvider == nil {
 		return ToolResult{Content: "error: no repository configured — ask the user for a repo URL first"}, nil
 	}
 
@@ -133,7 +133,7 @@ func execCreateIssue(ctx context.Context, raw json.RawMessage, sess *Session) (T
 		return ToolResult{}, fmt.Errorf("unmarshal create_issue: %w", err)
 	}
 
-	issue, err := sess.Tracker.CreateIssue(ctx, git.IssueInput{
+	issue, err := sess.GitProvider.CreateIssue(ctx, git.IssueInput{
 		Title:  input.Title,
 		Body:   buildIssueBody(input.Description, input.AcceptanceCriteria),
 		Labels: input.Labels,

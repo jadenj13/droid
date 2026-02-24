@@ -36,25 +36,25 @@ func NewWorker(agent *Agent, factory git.Factory, token string, log *slog.Logger
 func (w *Worker) HandleIssue(ctx context.Context, repoURL string, issue git.Issue) error {
 	w.log.Info("handling issue", "issue", issue.Number, "title", issue.Title)
 
-	tracker, _, err := w.factory.ProviderFor(ctx, repoURL)
+	provider, _, err := w.factory.ProviderFor(ctx, repoURL)
 	if err != nil {
-		return fmt.Errorf("build tracker: %w", err)
+		return fmt.Errorf("build provider: %w", err)
 	}
 
-	full, err := tracker.GetIssue(ctx, issue.Number)
+	full, err := provider.GetIssue(ctx, issue.Number)
 	if err != nil {
 		return fmt.Errorf("fetch issue: %w", err)
 	}
 	issue = full
 
-	result, err := w.agent.Run(ctx, issue, tracker, w.token)
+	result, err := w.agent.Run(ctx, issue, provider, w.token)
 	if err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
 
-	opener, ok := tracker.(PROpener)
+	opener, ok := provider.(PROpener)
 	if !ok {
-		return fmt.Errorf("tracker does not support opening PRs")
+		return fmt.Errorf("provider does not support opening PRs")
 	}
 
 	prURL, err := opener.OpenPR(ctx, PRInput{
@@ -71,7 +71,7 @@ func (w *Worker) HandleIssue(ctx context.Context, repoURL string, issue git.Issu
 
 	w.log.Info("PR opened", "url", prURL, "issue", issue.Number)
 
-	if err := tracker.AddLabel(ctx, issue.Number, "agent:review"); err != nil {
+	if err := provider.AddLabel(ctx, issue.Number, "agent:review"); err != nil {
 		w.log.Warn("failed to add agent:review label", "err", err)
 		// Non-fatal — the PR is open regardless.
 	}
