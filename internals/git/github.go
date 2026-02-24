@@ -49,6 +49,7 @@ func (t *GitHubProvider) GetIssue(ctx context.Context, number int) (Issue, error
 	return Issue{
 		Number: issue.GetNumber(),
 		Title:  issue.GetTitle(),
+		Body:   issue.GetBody(),
 		URL:    issue.GetHTMLURL(),
 	}, nil
 }

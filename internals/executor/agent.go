@@ -138,8 +138,7 @@ Issue body:
 
 Start by listing the repository structure so you understand the codebase, then plan your approach before making any changes.
 When you are done and all tests pass, call submit_work.`,
-		issue.Number, issue.Title, issue.URL, "{{ISSUE_BODY}}")
-	// Note: issue body will be fetched separately and substituted in the worker.
+		issue.Number, issue.Title, issue.URL, issue.Body)
 }
 
 func systemPrompt() string {

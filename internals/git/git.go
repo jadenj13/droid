@@ -31,6 +31,7 @@ type IssueInput struct {
 type Issue struct {
 	Number int
 	Title  string
+	Body   string
 	URL    string
 }
 

@@ -53,6 +53,7 @@ func (t *GitLabProvider) GetIssue(ctx context.Context, number int) (Issue, error
 	return Issue{
 		Number: int(issue.IID),
 		Title:  issue.Title,
+		Body:   issue.Description,
 		URL:    issue.WebURL,
 	}, nil
 }

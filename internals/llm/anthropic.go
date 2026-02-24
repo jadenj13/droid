@@ -3,10 +3,19 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand/v2"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+)
+
+const (
+	maxRetries    = 4
+	baseDelay     = time.Second
+	maxDelay      = 30 * time.Second
 )
 
 const (
@@ -54,18 +63,59 @@ func (c *Client) CompleteWithTools(ctx context.Context, system string, messages 
 		toolUnions[i] = anthropic.ToolUnionParam{OfTool: &t}
 	}
 
-	resp, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
+	params := anthropic.MessageNewParams{
 		Model:     c.model,
 		MaxTokens: c.maxTokens,
 		System:    []anthropic.TextBlockParam{{Text: system}},
 		Messages:  apiMessages,
 		Tools:     toolUnions,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("anthropic api: %w", err)
 	}
 
-	return resp, nil
+	var resp *anthropic.Message
+	for attempt := range maxRetries {
+		resp, err = c.client.Messages.New(ctx, params)
+		if err == nil {
+			return resp, nil
+		}
+
+		if !isRetryable(err) || attempt == maxRetries-1 {
+			return nil, fmt.Errorf("anthropic api: %w", err)
+		}
+
+		delay := retryDelay(attempt)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return nil, fmt.Errorf("anthropic api: %w", err)
+}
+
+// isRetryable returns true for transient errors worth retrying: rate limits,
+// overloaded, and 5xx server errors. Authentication and client errors are not retried.
+func isRetryable(err error) bool {
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.StatusCode {
+	case 429, 500, 502, 503, 504, 529:
+		return true
+	}
+	return false
+}
+
+// retryDelay returns an exponential backoff duration with full jitter.
+func retryDelay(attempt int) time.Duration {
+	exp := baseDelay * (1 << attempt) // 1s, 2s, 4s, 8s, ...
+	if exp > maxDelay {
+		exp = maxDelay
+	}
+	// Full jitter: random value in [0, exp)
+	jitter := time.Duration(rand.Int64N(int64(exp)))
+	return jitter
 }
 
 func toAPIMessages(messages []Message) ([]anthropic.MessageParam, error) {
