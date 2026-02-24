@@ -1,0 +1,26 @@
+services:
+  planner:
+    build: .
+    command: ./bin/planner
+    env_file: .env
+    restart: unless-stopped
+
+  executor:
+    build: .
+    command: ./bin/executor
+    env_file: .env
+    ports:
+      - "${EXECUTOR_ADDR:-8080}:8080"
+    environment:
+      - EXECUTOR_ADDR=:8080
+    restart: unless-stopped
+
+  reviewer:
+    build: .
+    command: ./bin/reviewer
+    env_file: .env
+    ports:
+      - "${REVIEWER_ADDR:-8081}:8081"
+    environment:
+      - REVIEWER_ADDR=:8081
+    restart: unless-stopped
